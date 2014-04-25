@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<style type="text/css">
+	.zipline, .abstracted {
+		stroke: black;
+		stroke-width: .5px;
+		fill: none;
+	}
+	.depth-0 {
+		stroke: #aaa;
+		stroke-width: 4px;
+	}
+	.depth-1 {
+		stroke: #999;
+		stroke-width: 3px;
+	}
+	.depth-2 {
+		stroke: #777;
+		stroke-width: 2px;
+	}
+	.depth-3 {
+		stroke: #555;
+		stroke-width: 1px;
+	}
+	text.status {
+		fill: gray;
+		font-size: 256px;
+	}
+	</style>
+	<script type="text/javascript" src="d3.v3.min.js"></script>
+	<script type="text/javascript">
+		var width = 960;
+		var height = 500;
+
+		var zips;
+
+		var ziptree = { 'x':0, 'y':0, 'children':[] };
+
+		var levels = [];
+
+		var svg;
+
+		var line = d3.svg.line()
+			.x(function(d) { return d.x; })
+			.y(function(d) { return d.y; });
+
+		var interpLine = d3.svg.line()
+			.x(function(d) { return d.interpX; })
+			.y(function(d) { return d.interpY; });
+
+		function makeTree(root, depth) {
+			d3.range(10).forEach(function(i) {
+				var node = { 'x':0, 'y':0, 'children':[] };
+				root.children.push(node);
+				if (depth < 3)
+					makeTree(node, depth+1);
+			});
+		}
+
+		function calcCenters(root, depth) {
+			if (depth < 4) {
+				root.children.forEach(function(child) {
+					calcCenters(child, depth+1);
+				});
+			}
+
+			root.children = root.children.filter(function(c) { return c.x != 0; });
+
+			if (root.children.length > 0) {
+				root.children.forEach(function(child) {
+					root.x += child.x;
+					root.y += child.y;
+				});
+				root.x /= root.children.length;
+				root.y /= root.children.length;
+			}
+		}
+
+		function makeLevelLists(root, depth) {
+			levels[depth].push(root);
+			if (depth < 4)
+				root.children.forEach(function(child) {
+					makeLevelLists(child, depth+1);
+				})
+		}
+
+		function drawLevel(level, baselevel, transition) {
+			var lineFunction;
+			if (level === baselevel) {
+				lineFunction = line;
+			} else {
+				var stepSize = Math.floor(levels[baselevel].length/levels[level].length);
+				for (var step = 0; step < levels[level].length-1; step += 1) {
+					var x = levels[level][step].x;
+					var y = levels[level][step].y;
+					var dx = (levels[level][step+1].x-levels[level][step].x)/stepSize;
+					var dy = (levels[level][step+1].y-levels[level][step].y)/stepSize;
+
+					var i = step * stepSize;
+					var endIndex = (step == levels[level].length-2) ? levels[baselevel].length-1 : i+stepSize;
+
+					while (i <= endIndex) {
+						levels[baselevel][i].interpX = x;
+						levels[baselevel][i].interpY = y;
+						x += dx;
+						y += dy;
+						i += 1;
+					}
+				}
+				lineFunction = interpLine;
+			}
+
+			if (transition) {
+				svg.select('.abstracted')
+					.transition()
+					.duration(1000)
+					.attr('d', lineFunction(levels[baselevel]));
+			} else {
+				svg.append('path')
+					.attr('class','abstracted depth-'+level)
+					.attr('d', lineFunction(levels[baselevel]));
+			}
+		}
+
+		function drawTree(root, depth) {
+			if (depth == 4) {
+				root.children.forEach(function(child) {
+					svg.append('line')
+						.attr('class', 'zipline depth-'+depth)
+						.attr('x1', root.x)
+						.attr('y1', root.y)
+						.attr('x2', child.x)
+						.attr('y2', child.y);
+				});
+			} else {
+				root.children.forEach(function(child) {
+					drawTree(child, depth+1);
+				});
+			}
+		}
+
+		function doStuff() {
+			svg = d3.select('#map').append('svg')
+				.attr('width', width)
+				.attr('height', height);
+
+			// svg.append('text')
+			// 	.attr('class', 'status')
+			// 	.attr('x', 10)
+			// 	.attr('y', height-50);
+
+			// svg.select('text.status').text('Loading data');
+
+			d3.csv('data/US-withheaders.csv', function(data) {
+				data.sort(function(a, b) {
+					return a.zip - b.zip;
+				});
+				zips = data;
+
+				// svg.select('text.status').text('Projecting');
+
+				var projection = d3.geo.albersUsa()
+					.scale(1000)
+					.translate([width / 2, height / 2]);
+
+				zips.forEach(function(z) {
+					var p = projection([z.lon, z.lat]);
+					if (p) {
+						z.x = p[0];
+						z.y = p[1];
+					} else {
+						z.x = z.y = -1;
+					}
+				})
+
+				zips = zips.filter(function(z) {
+					return z.x != -1;
+				});
+
+				makeTree(ziptree, 0);
+
+				zips.forEach(function(zip) {
+					var n = ziptree;
+					for (var i = 0; i < 4; i += 1) {
+						n = n.children[zip.zip[i]];
+					}
+					n.children.push(zip);
+				});
+
+				calcCenters(ziptree, 0);
+
+				for (var i = 0; i < 5; i += 1) {
+					levels.push([]);
+				}
+
+				makeLevelLists(ziptree, 0);
+
+				drawLevel(1, 4, false);
+
+				// drawTree(ziptree, 0);
+
+			});
+		}
+	</script>
+</head>
+<body>
+	<div id="map">
+	</div>
+	<a href="javascript:drawLevel(1, 4, true);">Level 1</a><br />
+	<a href="javascript:drawLevel(2, 4, true);">Level 2</a><br />
+	<a href="javascript:drawLevel(3, 4, true);">Level 3</a><br />
+	<a href="javascript:drawLevel(4, 4, true);">Level 4</a><br />
+	<script type="text/javascript">
+		doStuff();
+	</script>
+
+</body>
