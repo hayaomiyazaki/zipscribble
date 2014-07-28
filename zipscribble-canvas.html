@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<style type="text/css">
+	path.zipline {
+		stroke: black;
+		stroke-width: .5px;
+		fill: none;
+	}
+	</style>
+	<script type="text/javascript" src="d3.v3.min.js"></script>
+	<script type="text/javascript">
+		var zips;
+
+		var width = 960;
+		var height = 500;
+
+		var currentView = [width/2, height/2, height];
+		var center = [width/2, height/2];
+
+		var scribbleGroup;
+
+		var zipIndex = 0;
+		var delay = 0;
+
+		var boundingBox = {minX: Number.POSITIVE_INFINITY, minY: Number.POSITIVE_INFINITY, maxX: -1, maxY: -1};
+
+		var ctx;
+
+		function tick() {
+
+			ctx.beginPath();
+			ctx.moveTo(zips[zipIndex].x, zips[zipIndex].y);
+			ctx.lineTo(zips[zipIndex+1].x, zips[zipIndex+1].y);
+			ctx.closePath();
+			ctx.stroke();
+
+			zipIndex += 1;
+			if (zipIndex < zips.length) {
+				setTimeout(tick, delay);
+			}
+		}
+
+		function addToBoundingBox(zip) {
+			boundingBox.minX = Math.min(boundingBox.minX, zip.x);
+			boundingBox.maxX = Math.max(boundingBox.maxX, zip.x);
+			boundingBox.minY = Math.min(boundingBox.minY, zip.y);
+			boundingBox.maxY = Math.max(boundingBox.maxY, zip.y);
+		}
+
+		function transform(p) {
+			var k = height / p[2];
+			return 'translate('+(center[0]-p[0]*k)+','+(center[1]-p[1]*k)+')scale('+k+')';
+		}
+
+		function pause() {
+			numZIPs = zips.length;
+		}
+
+		d3.csv('data/US-withheaders.csv', function(data) {
+			data.sort(function(a, b) {
+				return a.zip - b.zip;
+			});
+			zips = data;
+
+			var projection = d3.geo.albersUsa()
+				.scale(1000)
+				.translate([width / 2, height / 2]);
+
+			zips.forEach(function(z) {
+				var p = projection([z.lon, z.lat]);
+				if (p) {
+					z.x = p[0];
+					z.y = p[1];
+				} else {
+					z.x = z.y = -1;
+				}
+			})
+
+			zips = zips.filter(function(z) {
+				return z.x != -1;
+			});
+
+			for (var i = 0; i < zips.length; i += 1) {
+				addToBoundingBox(zips[i]);
+			}
+
+			var canvas = document.getElementById('mapcanvas');
+			ctx = canvas.getContext('2d');
+
+			tick();
+		});
+	</script>
+</head>
+<body>
+	<div id="map">
+		<canvas id="mapcanvas" width="960" height="600">
+		</canvas>
+	</div>
+	<label><input type="checkbox" id="pause" onclick="pause();"/> Pause</label>
+</body>
+</html>
